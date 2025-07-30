@@ -98,7 +98,7 @@ def index_selection_page():
             
             if not indexes:
                 st.error("No indexes found. Please create an index first using the CLI.")
-                st.subheader("🚀 Quick Start")
+                st.subheader("Quick Start")
                 st.code("""
 # Create your first index
 python indexing.py create-index "My Videos" --engines marengo2.6
@@ -117,7 +117,7 @@ python indexing.py upload-video <index_id> path/to/video.mp4
                 list(index_options.keys()),
             )
             
-            if st.button("📂 Use This Index", use_container_width=True, type="primary"):
+            if st.button("Use This Index", use_container_width=True, type="primary"):
                 selected_index_id = index_options[selected_index_display]
                 st.query_params["index_id"] = selected_index_id
                 st.rerun()
@@ -130,7 +130,7 @@ python indexing.py upload-video <index_id> path/to/video.mp4
                 try:
                     videos = list(client.index.video.list(index_id=selected_id, page_limit=5))
                     if videos:
-                        st.success(f"✅ Found {len(videos)} video(s) in this index")
+                        st.success(f"Found {len(videos)} video(s) in this index")
                         for i, video in enumerate(videos[:3], 1):
                             filename = video.system_metadata.filename[:-4] if hasattr(video, 'system_metadata') else video.id
                             if len(filename) > 50:
@@ -139,7 +139,7 @@ python indexing.py upload-video <index_id> path/to/video.mp4
                         if len(videos) > 3:
                             st.write(f"... and {len(videos) - 3} more")
                     else:
-                        st.warning("⚠️ This index is empty. Upload videos first:")
+                        st.warning("This index is empty. Upload videos first:")
                         st.code(f"python indexing.py upload-video {selected_id} path/to/video.mp4")
                 except Exception as e:
                     st.error(f"Error loading videos: {e}")
@@ -195,7 +195,7 @@ def search_page(index_id: str, index_name: str):
     # Search parameters
     search_query = None
     search_image = None
-    search_options = {'page_limit': 50, 'threshold': 'none'}
+    search_options = {'page_limit': 10, 'threshold': 'none'}
     
     if search_type in ["Text Search", "Multimodal Search"]:
 
@@ -224,7 +224,7 @@ def search_page(index_id: str, index_name: str):
     elif search_type == "Multimodal Search" and (search_query or search_image):
         can_search = True
     
-    if st.button("🔍 Search", disabled=not can_search, use_container_width=True):
+    if st.button("Search", disabled=not can_search, use_container_width=True):
         with st.spinner("Searching videos..."):
             try:
                 # Prepare search parameters
@@ -253,8 +253,6 @@ def search_page(index_id: str, index_name: str):
                 if not results or not hasattr(results, 'data') or not results.data:
                     st.warning("No results found for your search.")
                 else:
-                    st.success(f"Found {len(results.data)} result(s)")
-                    
                     for i, result in enumerate(results.data):
                         with st.expander(f"Result {i+1} - Score: {result.score:.3f}", expanded=i<3):
                             # Retrieve full video object to get video URL
@@ -273,16 +271,14 @@ def search_page(index_id: str, index_name: str):
                                 # Display video player with time segment if available
                                 if video and hasattr(video, 'hls') and hasattr(video.hls, 'video_url') and video.hls.video_url:
                                     try:
-                                        # Create video URL with time fragment for specific segment
+                                        # Use Streamlit's native start_time parameter for fast seeking
                                         video_url = video.hls.video_url
+                                        if hasattr(result, 'start'):
+                                            st.video(video_url, start_time=int(result.start))
+                                        else:
+                                            st.video(video_url)
                                         if hasattr(result, 'start') and hasattr(result, 'end'):
-                                            # Add media fragment URI for time range (W3C standard)
-                                            # Format: video.mp4#t=start_seconds,end_seconds
-                                            video_url = f"{video_url}#t={result.start:.1f},{result.end:.1f}"
-                                        
-                                        st.video(video_url)
-                                        if hasattr(result, 'start') and hasattr(result, 'end'):
-                                            st.caption(f"🎯 Playing segment: {result.start:.1f}s - {result.end:.1f}s")
+                                            st.caption(f"Playing segment: {result.start:.1f}s - {result.end:.1f}s")
                                     except Exception:
                                         st.info("Video player not available for this result.")
                                 else:
@@ -402,7 +398,7 @@ def summary_page(index_id: str, index_name: str):
                                         font-size: 24px;
                                         margin-bottom: 8px;
                                     '>
-                                        🎬
+                                        VIDEO
                                     </div>
                                     """,
                                     unsafe_allow_html=True
@@ -410,7 +406,7 @@ def summary_page(index_id: str, index_name: str):
                             
                             # Video details
                             st.markdown(f"**{filename}**")
-                            st.caption(f"⏱️ {duration_str} | 🆔 {video.id[:8]}...")
+                            st.caption(f"{duration_str} | ID: {video.id[:8]}...")
                             
                             # Select button that sets query param
                             button_key = f"select_summary_{video.id}"
@@ -444,12 +440,12 @@ def summary_page(index_id: str, index_name: str):
         if len(filename) > 50:
             filename = filename[:50] + '...'
         
-        st.header(f"📄 {filename}")
-        
         # Two-column layout: Video on left, Summary on right
         col1, col2 = st.columns([2, 1])
         
         with col1:
+            # Column title
+            st.markdown(f"<h4 style='margin-bottom: 10px;'>{filename}</h4>", unsafe_allow_html=True)
             if (hasattr(selected_video, 'hls') and 
                 hasattr(selected_video.hls, 'video_url') and 
                 selected_video.hls.video_url):
@@ -482,36 +478,43 @@ def summary_page(index_id: str, index_name: str):
             st.caption(caption)
         
         with col2:
-            # Auto-generate summary with concise prompt
-            with st.spinner("Generating summary..."):
-                try:
-                    # Always use "summary" type with a concise prompt
-                    summary_result = client.summarize(
-                        video_id=selected_video.id,
-                        type="summary",
-                        prompt="Provide a very concise summary. Focus on the main points without unnecessary details."
-                    )
-                    
-                    # Display summary content
-                    if hasattr(summary_result, 'summary') and summary_result.summary:
-                        st.write(summary_result.summary)
-                        
-                        # Download button
-                        st.download_button(
-                            "💾 Download Summary",
-                            data=summary_result.summary,
-                            file_name=f"summary_{filename}.txt",
-                            mime="text/plain",
-                            use_container_width=True
-                        )
-                    elif hasattr(summary_result, 'data') and summary_result.data:
-                        st.write(str(summary_result.data))
-                    else:
-                        st.write(str(summary_result))
-                    
-                except Exception as e:
-                    st.error(f"Failed to generate summary: {e}")
-                    st.info("Please check that the video has been fully processed and try again.")
+            # Column title
+            st.markdown("<h4 style='text-align: left; margin-bottom: 10px;'>Summary</h4>", unsafe_allow_html=True)
+            
+            # Summary container with fixed height and scrolling
+            with st.container(height=480, border=True):
+                # Check if summary is already cached
+                cache_key = f"summary_{selected_video.id}"
+                
+                if cache_key not in st.session_state:
+                    # Auto-generate summary with concise prompt
+                    with st.spinner("Generating summary..."):
+                        try:
+                            # Always use "summary" type with a concise prompt
+                            summary_result = client.summarize(
+                                video_id=selected_video.id,
+                                type="summary",
+                                prompt="Provide a very concise summary. Focus on the main points without unnecessary details."
+                            )
+                            
+                            # Cache the summary
+                            if hasattr(summary_result, 'summary') and summary_result.summary:
+                                st.session_state[cache_key] = summary_result.summary
+                            elif hasattr(summary_result, 'data') and summary_result.data:
+                                st.session_state[cache_key] = str(summary_result.data)
+                            else:
+                                st.session_state[cache_key] = str(summary_result)
+                            
+                        except Exception as e:
+                            st.error(f"Failed to generate summary: {e}")
+                            st.info("Please check that the video has been fully processed and try again.")
+                            st.session_state[cache_key] = None
+                
+                # Display cached summary
+                if st.session_state.get(cache_key):
+                    st.write(st.session_state[cache_key])
+                
+
 
 
 def qa_page(index_id: str, index_name: str):
@@ -604,7 +607,7 @@ def qa_page(index_id: str, index_name: str):
                                         font-size: 24px;
                                         margin-bottom: 8px;
                                     '>
-                                        🎬
+                                        VIDEO
                                     </div>
                                     """,
                                     unsafe_allow_html=True
@@ -612,7 +615,7 @@ def qa_page(index_id: str, index_name: str):
                             
                             # Video details
                             st.markdown(f"**{filename}**")
-                            st.caption(f"⏱️ {duration_str} | 🆔 {video.id[:8]}...")
+                            st.caption(f"{duration_str} | ID: {video.id[:8]}...")
                             
                             # Select button that sets query param
                             button_key = f"select_qa_{video.id}"
@@ -650,12 +653,12 @@ def qa_page(index_id: str, index_name: str):
         if len(filename) > 50:
             filename = filename[:50] + '...'
         
-        st.header(f"💬 {filename}")
-        
         # Two-column layout: Video on left, Chat on right
         col1, col2 = st.columns([2, 1])
         
         with col1:
+            # Column title
+            st.markdown(f"<h4 style='margin-bottom: 10px;'>{filename}</h4>", unsafe_allow_html=True)
             # Try to display video if URL is available
             if (hasattr(selected_video, 'hls') and 
                 hasattr(selected_video.hls, 'video_url') and 
@@ -689,13 +692,44 @@ def qa_page(index_id: str, index_name: str):
             st.caption(caption)
         
         with col2:
-            # Display chat history
-            for item in st.session_state[chat_history_key]:
-                with st.chat_message("user"):
-                    st.write(item["question"])
-                with st.chat_message("assistant"):
-                    st.write(item["answer"])
-                    st.caption(f"⏱️ {item.get('response_time', 'N/A')}")
+            # Column title
+            st.markdown("<h4 style='text-align: left; margin-bottom: 10px;'>Chat</h4>", unsafe_allow_html=True)
+            
+            # Chat history container with fixed height and scrolling
+            with st.container(height=420, border=True):
+                # Display chat history
+                for item in st.session_state[chat_history_key]:
+                    with st.chat_message("user"):
+                        st.write(item["question"])
+                    with st.chat_message("assistant"):
+                        st.write(item["answer"])
+                        st.caption(f"Response time: {item.get('response_time', 'N/A')}")
+                
+                # Chat input at the bottom of the container
+                question = st.chat_input("Ask a question about the video...")
+                
+                if question and question.strip():
+                    # Add question to chat immediately with loading placeholder
+                    st.session_state[chat_history_key].append({
+                        "question": question,
+                        "answer": "Thinking...",
+                        "response_time": "Loading..."
+                    })
+                    st.rerun()
+                
+                # Show suggested questions below chat input if no chat history
+                if not st.session_state[chat_history_key]:
+                    suggestions = [
+                        "What is this video about?",
+                        "Who are the speakers?", 
+                        "What happens at 2:30?"
+                    ]
+                    
+                    for suggestion in suggestions:
+                        if st.button(f"{suggestion}", key=f"suggest_{suggestion}", use_container_width=True):
+                            # Set the suggestion to be processed
+                            st.session_state.temp_question = suggestion
+                            st.rerun()
             
             # Check for suggested question
             if hasattr(st.session_state, 'temp_question') and st.session_state.temp_question:
@@ -706,29 +740,9 @@ def qa_page(index_id: str, index_name: str):
                 st.session_state[chat_history_key].append({
                     "question": question_to_process,
                     "answer": "Thinking...",
-                    "response_time": "⏳"
+                    "response_time": "Loading..."
                 })
                 st.rerun()
-            
-            # Question input
-            with st.form("question_form", clear_on_submit=True):
-                question = st.text_area(
-                    "Ask a question about the video:",
-                    placeholder="e.g., 'What is this video about?', 'Who are the speakers?', 'What happens at 2:30?'",
-                    height=100,
-                    label_visibility='collapsed'
-                )
-                
-                submitted = st.form_submit_button("💬 Ask Question", use_container_width=True)
-                
-                if submitted and question.strip():
-                    # Add question to chat immediately with loading placeholder
-                    st.session_state[chat_history_key].append({
-                        "question": question,
-                        "answer": "Thinking...",
-                        "response_time": "⏳"
-                    })
-                    st.rerun()
             
             # Process pending question (if last message has loading placeholder)
             if (st.session_state[chat_history_key] and 
@@ -767,28 +781,13 @@ def qa_page(index_id: str, index_name: str):
                         # Update with error message
                         st.session_state[chat_history_key][-1] = {
                             "question": pending_question,
-                            "answer": f"❌ Error: {str(e)}",
+                            "answer": f"Error: {str(e)}",
                             "response_time": "Error"
                         }
                         st.rerun()
             
-            # Suggested questions
-            if not st.session_state[chat_history_key]:  # Only show if no chat history
-                suggestions = [
-                    "What is this video about?",
-                    "Who are the speakers?",
-                    "What happens at 2:30?"
-                ]
-                
-                for suggestion in suggestions:
-                    if st.button(f"❓ {suggestion}", key=f"suggest_{suggestion}", use_container_width=True):
-                        # Set the suggestion to be processed
-                        st.session_state.temp_question = suggestion
-                        st.rerun()
-
             # Clear chat button
-            st.markdown("---")
-            if st.button("🗑️ Clear Chat History", use_container_width=True):
+            if st.button("Clear Chat History", use_container_width=True):
                 st.session_state[chat_history_key] = []
                 st.rerun()
 
@@ -806,18 +805,30 @@ def full_app_with_sidebar(index_id: str, index_name: str):
     # Page navigation buttons
     
     # Search button
-    if st.sidebar.button("Search", use_container_width=True, type="primary" if current_page == "search" else "secondary"):
+    search_clicked = st.sidebar.button("Search", use_container_width=True, type="primary" if current_page == "search" else "secondary")
+    if search_clicked and current_page != "search":
         st.query_params["page"] = "search"
+        # Clear video_id when navigating away from video-specific pages
+        if "video_id" in st.query_params:
+            del st.query_params["video_id"]
         st.rerun()
     
     # Summary button  
-    if st.sidebar.button("Summarize", use_container_width=True, type="primary" if current_page == "summary" else "secondary"):
+    summary_clicked = st.sidebar.button("Summarize", use_container_width=True, type="primary" if current_page == "summary" else "secondary")
+    if summary_clicked and current_page != "summary":
         st.query_params["page"] = "summary"
+        # Clear video_id when navigating to summary overview
+        if "video_id" in st.query_params:
+            del st.query_params["video_id"]
         st.rerun()
     
     # Q&A button
-    if st.sidebar.button("Chat", use_container_width=True, type="primary" if current_page == "qa" else "secondary"):
+    qa_clicked = st.sidebar.button("Chat", use_container_width=True, type="primary" if current_page == "qa" else "secondary")
+    if qa_clicked and current_page != "qa":
         st.query_params["page"] = "qa"
+        # Clear video_id when navigating to qa overview
+        if "video_id" in st.query_params:
+            del st.query_params["video_id"]
         st.rerun()
     
     # Route to appropriate page based on query params
