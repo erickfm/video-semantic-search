@@ -3,6 +3,7 @@
 Video Semantic Search - Single File Multi-Page App
 """
 
+from pydoc import visiblename
 import streamlit as st
 from typing import Optional, Dict, Any, List
 import time
@@ -11,8 +12,8 @@ from tl_utils import get_client
 
 # Configure page
 st.set_page_config(
-    page_title="Video Semantic Search",
-    page_icon="🎬",
+    page_title="Snippetropolis",
+    page_icon="https://raw.githubusercontent.com/erickfm/assets/main/images/snip_logo.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -131,7 +132,9 @@ python indexing.py upload-video <index_id> path/to/video.mp4
                     if videos:
                         st.success(f"✅ Found {len(videos)} video(s) in this index")
                         for i, video in enumerate(videos[:3], 1):
-                            filename = video.system_metadata.filename if hasattr(video, 'system_metadata') else video.id
+                            filename = video.system_metadata.filename[:-4] if hasattr(video, 'system_metadata') else video.id
+                            if len(filename) > 50:
+                                filename = filename[:50] + '...'
                             st.write(f"{i}. {filename}")
                         if len(videos) > 3:
                             st.write(f"... and {len(videos) - 3} more")
@@ -170,32 +173,32 @@ def get_current_index():
 
 def search_page(index_id: str, index_name: str):
     """Search page functionality"""
-    st.title("🔍 Video Search")
-    st.markdown("Search through your video content using natural language, images, or both!")
-    
+    st.title("Search")
+    # st.markdown("Search through your video content using natural language, images, or both!")
+    # st.info(f"Search through videos in index: **{index_name}**")
+
     # Initialize client
     try:
         client = get_client()
     except SystemExit as e:
         st.error(str(e))
         return
-    
-    st.info(f"Searching in index: **{index_name}**")
-    
+        
     # Search type selection
-    search_type = st.radio(
-        "Search Type:",
+    search_type = st.pills(
+        "",
         ["Text Search", "Image Search", "Multimodal Search"],
-        horizontal=True
+        default="Text Search",
+        label_visibility='collapsed'
     )
     
     # Search parameters
     search_query = None
     search_image = None
-    search_options = {}
+    search_options = {'page_limit': 50, 'threshold': 'none'}
     
     if search_type in ["Text Search", "Multimodal Search"]:
-        st.subheader("Text Query")
+
         search_query = st.text_area(
             "Enter your search query:",
             placeholder="e.g., 'person walking in the park', 'red car driving', 'sunset scene'",
@@ -203,36 +206,14 @@ def search_page(index_id: str, index_name: str):
         )
     
     if search_type in ["Image Search", "Multimodal Search"]:
-        st.subheader("Image Upload")
         search_image = st.file_uploader(
             "Upload an image to search for similar visual content:",
             type=['png', 'jpg', 'jpeg', 'gif', 'bmp']
         )
         
         if search_image:
-            st.image(search_image, caption="Uploaded search image", use_container_width=True)
+            st.image(search_image, caption="Uploaded search image", use_container_width=False)
     
-    # Advanced options
-    with st.expander("Advanced Options"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            search_options['page_limit'] = st.number_input(
-                "Max Results:", 
-                min_value=1, 
-                max_value=50, 
-                value=10
-            )
-            
-        with col2:
-            search_options['threshold'] = st.selectbox(
-                "Confidence Threshold:", 
-                options=["none", "low", "medium", "high"],
-                index=2  # Default to "medium"
-            )
-    
-    # Search execution
-    st.markdown("---")
     
     # Validate inputs
     can_search = False
@@ -255,6 +236,10 @@ def search_page(index_id: str, index_name: str):
                     **search_options
                 }
                 
+                # Add query_media_type for image and multimodal searches
+                if search_type in ["Image Search", "Multimodal Search"] and search_image:
+                    search_params["query_media_type"] = "image"
+                
                 # Remove None values
                 search_params = {k: v for k, v in search_params.items() if v is not None}
                 
@@ -263,8 +248,6 @@ def search_page(index_id: str, index_name: str):
                 search_time = time.time() - start_time
                 
                 st.markdown("---")
-                st.subheader("Search Results")
-                st.info(f"Search completed in {search_time:.2f} seconds")
                 
                 # Display results
                 if not results or not hasattr(results, 'data') or not results.data:
@@ -274,21 +257,60 @@ def search_page(index_id: str, index_name: str):
                     
                     for i, result in enumerate(results.data):
                         with st.expander(f"Result {i+1} - Score: {result.score:.3f}", expanded=i<3):
-                            col1, col2 = st.columns([1, 2])
+                            # Retrieve full video object to get video URL
+                            try:
+                                video = client.index.video.retrieve(index_id=index_id, id=result.video_id)
+                                filename = video.system_metadata.filename[:-4] if hasattr(video, 'system_metadata') else result.video_id
+                                if len(filename) > 50:
+                                    filename = filename[:50] + '...'
+                            except Exception as e:
+                                video = None
+                                filename = result.video_id
+                            
+                            col1, col2 = st.columns([2, 1])
                             
                             with col1:
-                                if hasattr(result, 'thumbnail_url') and result.thumbnail_url:
-                                    st.image(result.thumbnail_url, use_container_width=True)
+                                # Display video player with time segment if available
+                                if video and hasattr(video, 'hls') and hasattr(video.hls, 'video_url') and video.hls.video_url:
+                                    try:
+                                        # Create video URL with time fragment for specific segment
+                                        video_url = video.hls.video_url
+                                        if hasattr(result, 'start') and hasattr(result, 'end'):
+                                            # Add media fragment URI for time range (W3C standard)
+                                            # Format: video.mp4#t=start_seconds,end_seconds
+                                            video_url = f"{video_url}#t={result.start:.1f},{result.end:.1f}"
+                                        
+                                        st.video(video_url)
+                                        if hasattr(result, 'start') and hasattr(result, 'end'):
+                                            st.caption(f"🎯 Playing segment: {result.start:.1f}s - {result.end:.1f}s")
+                                    except Exception:
+                                        st.info("Video player not available for this result.")
+                                else:
+                                    st.info("Video not available for this result.")
                                 
-                                st.write(f"**Video ID:** `{result.video_id}`")
-                                if hasattr(result, 'start') and hasattr(result, 'end'):
-                                    st.write(f"**Time:** {result.start:.1f}s - {result.end:.1f}s")
-                                st.write(f"**Confidence:** {result.score:.3f}")
-                            
-                            with col2:
+                                # Show matching text if available
                                 if hasattr(result, 'text') and result.text:
                                     st.write("**Matching Text:**")
                                     st.write(result.text)
+                            
+                            with col2:
+                                st.write(f"**File:** {filename}")
+                                st.write(f"**Video ID:** `{result.video_id[:16]}...`")
+                                if hasattr(result, 'start') and hasattr(result, 'end'):
+                                    start_min = int(result.start // 60)
+                                    start_sec = int(result.start % 60)
+                                    end_min = int(result.end // 60)
+                                    end_sec = int(result.end % 60)
+                                    st.write(f"**Segment:** {start_min}:{start_sec:02d} - {end_min}:{end_sec:02d}")
+                                st.write(f"**Confidence:** {result.score:.3f}")
+                                if hasattr(result, 'confidence'):
+                                    st.write(f"**Level:** {result.confidence}")
+                                
+                                # Add button to view full video
+                                if st.button(f"View Full Video", key=f"view_video_{result.video_id}_{i}"):
+                                    st.query_params.page = "summary"
+                                    st.query_params.video_id = result.video_id
+                                    st.rerun()
                 
             except Exception as e:
                 st.error(f"Search failed: {e}")
@@ -297,8 +319,7 @@ def search_page(index_id: str, index_name: str):
 def summary_page(index_id: str, index_name: str):
     """Summary page with two-state flow: thumbnail grid or video-specific view"""
     
-    st.header("📝 Video Summary")
-    st.info(f"Generating summaries for videos in index: **{index_name}**")
+    st.title("Summarize")
     
     # Initialize client
     try:
@@ -325,30 +346,6 @@ def summary_page(index_id: str, index_name: str):
     
     # State 1: No video selected - Show thumbnail grid
     if not selected_video_id:
-        # Summary options (moved to top)
-        with st.expander("📋 Summary Options", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                summary_type = st.selectbox(
-                    "Summary Type:",
-                    ["summary", "chapter", "highlight"],
-                    index=0,
-                    key="summary_type_global"
-                )
-            
-            with col2:
-                custom_prompt = st.text_input(
-                    "Custom Instructions (optional):",
-                    placeholder="e.g., 'Focus on technical details'",
-                    key="custom_prompt_global"
-                )
-        
-        st.markdown("---")
-        
-        # Display videos in a grid
-        st.subheader(f"📺 Select a Video to Summarize ({len(videos)})")
-        
         # Create grid layout (3 columns)
         cols_per_row = 3
         for i in range(0, len(videos), cols_per_row):
@@ -361,10 +358,12 @@ def summary_page(index_id: str, index_name: str):
                     
                     with col:
                         # Get video info
-                        filename = video.system_metadata.filename if hasattr(video, 'system_metadata') else video.id
+                        filename = video.system_metadata.filename[:-4] if hasattr(video, 'system_metadata') else video.id
+                        if len(filename) > 50:
+                            filename = filename[:50] + '...'
                         duration = None
-                        if hasattr(video, 'metadata') and video.metadata and hasattr(video.metadata, 'duration'):
-                            duration = video.metadata.duration
+                        if hasattr(video, 'system_metadata') and hasattr(video.system_metadata, 'duration'):
+                            duration = video.system_metadata.duration
                             minutes = int(duration // 60)
                             seconds = int(duration % 60)
                             duration_str = f"{minutes}:{seconds:02d}"
@@ -373,16 +372,20 @@ def summary_page(index_id: str, index_name: str):
                         
                         # Video thumbnail container (clickable)
                         with st.container():
-                            # Try to display thumbnail using the standard TwelveLabs attribute
+                            # Try to display thumbnail from HLS thumbnail URLs
                             thumbnail_displayed = False
                             
-                            # Based on official TwelveLabs docs, thumbnails should be available as 'thumbnail_url'
-                            if hasattr(video, 'thumbnail_url') and video.thumbnail_url:
-                                try:
-                                    st.image(video.thumbnail_url, use_container_width=True)
+                            # Thumbnails are located at video.hls.thumbnail_urls (list)
+                            try:
+                                if (hasattr(video, 'hls') and 
+                                    hasattr(video.hls, 'thumbnail_urls') and 
+                                    video.hls.thumbnail_urls and 
+                                    len(video.hls.thumbnail_urls) > 0):
+                                    thumbnail_url = video.hls.thumbnail_urls[0]
+                                    st.image(thumbnail_url, use_container_width=True)
                                     thumbnail_displayed = True
-                                except Exception:
-                                    pass  # Fall through to the fallback
+                            except Exception:
+                                pass  # Fall through to the fallback
                             
                             # Fallback if no thumbnail available yet
                             if not thumbnail_displayed:
@@ -411,12 +414,12 @@ def summary_page(index_id: str, index_name: str):
                             
                             # Select button that sets query param
                             button_key = f"select_summary_{video.id}"
-                            if st.button("📝 Summarize This Video", key=button_key, use_container_width=True):
+                            if st.button("Summarize This Video", key=button_key, use_container_width=True):
                                 st.query_params.video_id = video.id
                                 st.rerun()
     
     else:
-        # State 2: Video selected - Show video player and summary interface
+        # State 2: Video selected - Show video player and auto-generated summary
         # Find the selected video
         selected_video = None
         for video in videos:
@@ -431,147 +434,90 @@ def summary_page(index_id: str, index_name: str):
                 st.rerun()
             return
         
-        # Get video info
-        filename = selected_video.system_metadata.filename if hasattr(selected_video, 'system_metadata') else selected_video.id
-        
         # Back button
-        col1, col2 = st.columns([1, 4])
+        if st.button("← Back to Videos"):
+            del st.query_params.video_id
+            st.rerun()
+
+        # Get video info
+        filename = selected_video.system_metadata.filename[:-4] if hasattr(selected_video, 'system_metadata') else selected_video.id
+        if len(filename) > 50:
+            filename = filename[:50] + '...'
+        
+        st.header(f"📄 {filename}")
+        
+        # Two-column layout: Video on left, Summary on right
+        col1, col2 = st.columns([2, 1])
+        
         with col1:
-            if st.button("← Back to Videos"):
-                del st.query_params.video_id
-                st.rerun()
-        
-        # Video player and info
-        st.subheader(f"📹 {filename}")
-        
-        # Try to display video if URL is available
-        if hasattr(selected_video, 'video_url') and selected_video.video_url:
-            try:
-                st.video(selected_video.video_url)
-            except:
-                st.info("Video player not available. Showing summary interface only.")
-        elif hasattr(selected_video, 'url') and selected_video.url:
-            try:
-                st.video(selected_video.url)
-            except:
-                st.info("Video player not available. Showing summary interface only.")
-        else:
-            # Show thumbnail instead
-            if hasattr(selected_video, 'thumbnail_url') and selected_video.thumbnail_url:
-                st.image(selected_video.thumbnail_url, width=400)
+            if (hasattr(selected_video, 'hls') and 
+                hasattr(selected_video.hls, 'video_url') and 
+                selected_video.hls.video_url):
+                try:
+                    st.video(selected_video.hls.video_url)
+                except Exception as e:
+                    st.info("Video player not available.")
             else:
-                st.info("Video preview not available.")
-        
-        # Video metadata
-        if hasattr(selected_video, 'metadata') and selected_video.metadata:
-            duration = getattr(selected_video.metadata, 'duration', None)
-            if duration:
+                # Show thumbnail instead
+                try:
+                    if (hasattr(selected_video, 'hls') and 
+                        hasattr(selected_video.hls, 'thumbnail_urls') and 
+                        selected_video.hls.thumbnail_urls and 
+                        len(selected_video.hls.thumbnail_urls) > 0):
+                        st.image(selected_video.hls.thumbnail_urls[0], use_container_width=True)
+                    else:
+                        st.info("Video preview not available.")
+                except:
+                    st.info("Video preview not available.")
+            
+            # Video metadata
+            caption = ""
+            if hasattr(selected_video, 'system_metadata') and hasattr(selected_video.system_metadata, 'duration'):
+                duration = selected_video.system_metadata.duration
                 minutes = int(duration // 60)
                 seconds = int(duration % 60)
-                st.caption(f"⏱️ Duration: {minutes}:{seconds:02d}")
+                caption+=f"Duration: {minutes}:{seconds:02d}"
+            
+            caption+=f" | Video ID: {selected_video.id}"
+            st.caption(caption)
         
-        st.caption(f"🆔 Video ID: {selected_video.id}")
-        
-        st.markdown("---")
-        
-        # Summary options
-        with st.expander("📋 Summary Options", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                summary_type = st.selectbox(
-                    "Summary Type:",
-                    ["summary", "chapter", "highlight"],
-                    index=0,
-                    key="summary_type_video"
-                )
-            
-            with col2:
-                custom_prompt = st.text_input(
-                    "Custom Instructions (optional):",
-                    placeholder="e.g., 'Focus on technical details'",
-                    key="custom_prompt_video"
-                )
-        
-        # Generate summary button
-        if st.button("🚀 Generate Summary", use_container_width=True, type="primary"):
-            generate_summary(client, selected_video, filename, summary_type, custom_prompt)
-
-
-def generate_summary(client, video, filename, summary_type, custom_prompt):
-    """Generate and display summary for a specific video"""
-    
-    with st.spinner(f"Analyzing '{filename}' and generating summary..."):
-        try:
-            summary_params = {
-                "video_id": video.id,
-                "type": summary_type
-            }
-            
-            if custom_prompt.strip():
-                summary_params["prompt"] = custom_prompt
-            
-            start_time = time.time()
-            # Build summarize parameters
-            summarize_kwargs = {
-                "video_id": summary_params["video_id"],
-                "type": summary_params.get("type", "summary")
-            }
-            
-            # Add prompt if provided
-            if "prompt" in summary_params:
-                summarize_kwargs["prompt"] = summary_params["prompt"]
-            
-            summary_result = client.summarize(**summarize_kwargs)
-            analysis_time = time.time() - start_time
-            
-            # Create a modal-like display for the summary
-            st.markdown("---")
-            st.success(f"Summary generated in {analysis_time:.1f} seconds!")
-            
-            # Video info header
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.subheader(f"📄 Summary: {filename}")
-            with col2:
-                summary_text = ""
-                if hasattr(summary_result, 'summary') and summary_result.summary:
-                    summary_text = summary_result.summary
-                elif hasattr(summary_result, 'data') and summary_result.data:
-                    summary_text = str(summary_result.data)
-                else:
-                    summary_text = str(summary_result)
-                
-                if summary_text:
-                    st.download_button(
-                        "💾 Download",
-                        data=summary_text,
-                        file_name=f"summary_{filename}.txt",
-                        mime="text/plain",
-                        use_container_width=True
+        with col2:
+            # Auto-generate summary with concise prompt
+            with st.spinner("Generating summary..."):
+                try:
+                    # Always use "summary" type with a concise prompt
+                    summary_result = client.summarize(
+                        video_id=selected_video.id,
+                        type="summary",
+                        prompt="Provide a very concise summary. Focus on the main points without unnecessary details."
                     )
-            
-            # Display summary content
-            with st.container():
-                if hasattr(summary_result, 'summary') and summary_result.summary:
-                    st.write(summary_result.summary)
-                elif hasattr(summary_result, 'data') and summary_result.data:
-                    st.write(str(summary_result.data))
-                else:
-                    st.write(str(summary_result))
-            
-            st.markdown("---")
-            
-        except Exception as e:
-            st.error(f"Failed to generate summary: {e}")
-            st.info("Please check that the video has been fully processed and try again.")
+                    
+                    # Display summary content
+                    if hasattr(summary_result, 'summary') and summary_result.summary:
+                        st.write(summary_result.summary)
+                        
+                        # Download button
+                        st.download_button(
+                            "💾 Download Summary",
+                            data=summary_result.summary,
+                            file_name=f"summary_{filename}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                    elif hasattr(summary_result, 'data') and summary_result.data:
+                        st.write(str(summary_result.data))
+                    else:
+                        st.write(str(summary_result))
+                    
+                except Exception as e:
+                    st.error(f"Failed to generate summary: {e}")
+                    st.info("Please check that the video has been fully processed and try again.")
 
 
 def qa_page(index_id: str, index_name: str):
     """Q&A page with two-state flow: thumbnail grid or video-specific chat"""
     
-    st.header("💬 Video Q&A Chat")
-    st.info(f"Ask questions about videos in index: **{index_name}**")
+    st.title("Chat")
     
     # Initialize client
     try:
@@ -601,7 +547,6 @@ def qa_page(index_id: str, index_name: str):
     # State 1: No video selected - Show thumbnail grid
     if not selected_video_id:
         # Display videos in a grid
-        st.subheader(f"📺 Select a Video to Chat With ({len(videos)})")
         
         # Create grid layout (3 columns)
         cols_per_row = 3
@@ -615,10 +560,12 @@ def qa_page(index_id: str, index_name: str):
                     
                     with col:
                         # Get video info
-                        filename = video.system_metadata.filename if hasattr(video, 'system_metadata') else video.id
+                        filename = video.system_metadata.filename[:-4] if hasattr(video, 'system_metadata') else video.id
+                        if len(filename) > 50:
+                            filename = filename[:50] + '...'
                         duration = None
-                        if hasattr(video, 'metadata') and video.metadata and hasattr(video.metadata, 'duration'):
-                            duration = video.metadata.duration
+                        if hasattr(video, 'system_metadata') and hasattr(video.system_metadata, 'duration'):
+                            duration = video.system_metadata.duration
                             minutes = int(duration // 60)
                             seconds = int(duration % 60)
                             duration_str = f"{minutes}:{seconds:02d}"
@@ -627,16 +574,20 @@ def qa_page(index_id: str, index_name: str):
                         
                         # Video thumbnail container (clickable)
                         with st.container():
-                            # Try to display thumbnail using the standard TwelveLabs attribute
+                            # Try to display thumbnail from HLS thumbnail URLs
                             thumbnail_displayed = False
                             
-                            # Based on official TwelveLabs docs, thumbnails should be available as 'thumbnail_url'
-                            if hasattr(video, 'thumbnail_url') and video.thumbnail_url:
-                                try:
-                                    st.image(video.thumbnail_url, use_container_width=True)
+                            # Thumbnails are located at video.hls.thumbnail_urls (list)
+                            try:
+                                if (hasattr(video, 'hls') and 
+                                    hasattr(video.hls, 'thumbnail_urls') and 
+                                    video.hls.thumbnail_urls and 
+                                    len(video.hls.thumbnail_urls) > 0):
+                                    thumbnail_url = video.hls.thumbnail_urls[0]
+                                    st.image(thumbnail_url, use_container_width=True)
                                     thumbnail_displayed = True
-                                except Exception:
-                                    pass  # Fall through to the fallback
+                            except Exception:
+                                pass  # Fall through to the fallback
                             
                             # Fallback if no thumbnail available yet
                             if not thumbnail_displayed:
@@ -665,7 +616,7 @@ def qa_page(index_id: str, index_name: str):
                             
                             # Select button that sets query param
                             button_key = f"select_qa_{video.id}"
-                            if st.button("💬 Chat About This Video", key=button_key, use_container_width=True):
+                            if st.button("Chat About This Video", key=button_key, use_container_width=True):
                                 st.query_params.video_id = video.id
                                 st.rerun()
     
@@ -689,88 +640,108 @@ def qa_page(index_id: str, index_name: str):
         if chat_history_key not in st.session_state:
             st.session_state[chat_history_key] = []
         
-        # Get video info
-        filename = selected_video.system_metadata.filename if hasattr(selected_video, 'system_metadata') else selected_video.id
-        
         # Back button
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            if st.button("← Back to Videos"):
-                del st.query_params.video_id
-                st.rerun()
+        if st.button("← Back to Videos"):
+            del st.query_params.video_id
+            st.rerun()
+
+        # Get video info
+        filename = selected_video.system_metadata.filename[:-4] if hasattr(selected_video, 'system_metadata') else selected_video.id
+        if len(filename) > 50:
+            filename = filename[:50] + '...'
         
-        # Video player and info
-        st.subheader(f"💬 Chat with: {filename}")
+        st.header(f"💬 {filename}")
         
-        # Video player section
+        # Two-column layout: Video on left, Chat on right
         col1, col2 = st.columns([2, 1])
         
         with col1:
             # Try to display video if URL is available
-            if hasattr(selected_video, 'video_url') and selected_video.video_url:
+            if (hasattr(selected_video, 'hls') and 
+                hasattr(selected_video.hls, 'video_url') and 
+                selected_video.hls.video_url):
                 try:
-                    st.video(selected_video.video_url)
-                except:
-                    st.info("Video player not available.")
-            elif hasattr(selected_video, 'url') and selected_video.url:
-                try:
-                    st.video(selected_video.url)
-                except:
+                    st.video(selected_video.hls.video_url)
+                except Exception as e:
                     st.info("Video player not available.")
             else:
                 # Show thumbnail instead
-                if hasattr(selected_video, 'thumbnail_url') and selected_video.thumbnail_url:
-                    st.image(selected_video.thumbnail_url, width=400)
-                else:
+                try:
+                    if (hasattr(selected_video, 'hls') and 
+                        hasattr(selected_video.hls, 'thumbnail_urls') and 
+                        selected_video.hls.thumbnail_urls and 
+                        len(selected_video.hls.thumbnail_urls) > 0):
+                        st.image(selected_video.hls.thumbnail_urls[0], use_container_width=True)
+                    else:
+                        st.info("Video preview not available.")
+                except:
                     st.info("Video preview not available.")
+            
+            # Video metadata
+            caption = ""
+            if hasattr(selected_video, 'system_metadata') and hasattr(selected_video.system_metadata, 'duration'):
+                duration = selected_video.system_metadata.duration
+                minutes = int(duration // 60)
+                seconds = int(duration % 60)
+                caption += f"Duration: {minutes}:{seconds:02d}"
+            
+            caption += f" | Video ID: {selected_video.id}"
+            st.caption(caption)
         
         with col2:
-            # Video metadata
-            st.markdown("**Video Info:**")
-            if hasattr(selected_video, 'metadata') and selected_video.metadata:
-                duration = getattr(selected_video.metadata, 'duration', None)
-                if duration:
-                    minutes = int(duration // 60)
-                    seconds = int(duration % 60)
-                    st.write(f"⏱️ Duration: {minutes}:{seconds:02d}")
+            # Display chat history
+            for item in st.session_state[chat_history_key]:
+                with st.chat_message("user"):
+                    st.write(item["question"])
+                with st.chat_message("assistant"):
+                    st.write(item["answer"])
+                    st.caption(f"⏱️ {item.get('response_time', 'N/A')}")
             
-            st.write(f"🆔 ID: {selected_video.id[:12]}...")
-            
-            # Clear chat button
-            if st.button("🗑️ Clear Chat History", use_container_width=True):
-                st.session_state[chat_history_key] = []
+            # Check for suggested question
+            if hasattr(st.session_state, 'temp_question') and st.session_state.temp_question:
+                question_to_process = st.session_state.temp_question
+                st.session_state.temp_question = None  # Clear it
+                
+                # Add question to chat immediately with loading placeholder
+                st.session_state[chat_history_key].append({
+                    "question": question_to_process,
+                    "answer": "Thinking...",
+                    "response_time": "⏳"
+                })
                 st.rerun()
-        
-        st.markdown("---")
-        
-        # Chat interface
-        st.subheader("💭 Ask Questions")
-        
-        # Display chat history
-        for item in st.session_state[chat_history_key]:
-            with st.chat_message("user"):
-                st.write(item["question"])
-            with st.chat_message("assistant"):
-                st.write(item["answer"])
-                st.caption(f"⏱️ {item.get('response_time', 'N/A')}")
-        
-        # Question input
-        with st.form("question_form", clear_on_submit=True):
-            question = st.text_area(
-                "Ask a question about the video:",
-                placeholder="e.g., 'What is this video about?', 'Who are the speakers?', 'What happens at 2:30?'",
-                height=100
-            )
             
-            submitted = st.form_submit_button("💬 Ask Question", use_container_width=True)
+            # Question input
+            with st.form("question_form", clear_on_submit=True):
+                question = st.text_area(
+                    "Ask a question about the video:",
+                    placeholder="e.g., 'What is this video about?', 'Who are the speakers?', 'What happens at 2:30?'",
+                    height=100,
+                    label_visibility='collapsed'
+                )
+                
+                submitted = st.form_submit_button("💬 Ask Question", use_container_width=True)
+                
+                if submitted and question.strip():
+                    # Add question to chat immediately with loading placeholder
+                    st.session_state[chat_history_key].append({
+                        "question": question,
+                        "answer": "Thinking...",
+                        "response_time": "⏳"
+                    })
+                    st.rerun()
             
-            if submitted and question.strip():
+            # Process pending question (if last message has loading placeholder)
+            if (st.session_state[chat_history_key] and 
+                st.session_state[chat_history_key][-1]["answer"] == "Thinking..."):
+                
+                pending_question = st.session_state[chat_history_key][-1]["question"]
+                
                 with st.spinner("Analyzing video and generating answer..."):
                     try:
                         start_time = time.time()
                         result = client.analyze(
                             video_id=selected_video.id,
-                            prompt=question
+                            prompt=pending_question
                         )
                         response_time = time.time() - start_time
                         
@@ -782,36 +753,45 @@ def qa_page(index_id: str, index_name: str):
                         else:
                             answer = str(result)
                         
-                        # Add to chat history
-                        st.session_state[chat_history_key].append({
-                            "question": question,
+                        # Update the last message with the real answer
+                        st.session_state[chat_history_key][-1] = {
+                            "question": pending_question,
                             "answer": answer,
                             "response_time": f"{response_time:.1f}s"
-                        })
+                        }
                         
+                        # Rerun to show the answer
                         st.rerun()
                         
                     except Exception as e:
-                        st.error(f"Failed to get answer: {e}")
-        
-        # Suggested questions
-        if len(st.session_state[chat_history_key]) == 0:
-            st.markdown("**💡 Suggested questions:**")
-            suggested_questions = [
-                "What is this video about?",
-                "Who are the main speakers or people in this video?",
-                "What are the key topics discussed?",
-                "Summarize the main points",
-                "What happens in the first minute?"
-            ]
+                        # Update with error message
+                        st.session_state[chat_history_key][-1] = {
+                            "question": pending_question,
+                            "answer": f"❌ Error: {str(e)}",
+                            "response_time": "Error"
+                        }
+                        st.rerun()
             
-            cols = st.columns(2)
-            for i, suggestion in enumerate(suggested_questions):
-                col = cols[i % 2]
-                with col:
-                    if st.button(f"💭 {suggestion}", key=f"suggestion_{i}", use_container_width=True):
-                        # Add suggested question to form (this is a simple way to demonstrate)
-                        st.info(f"Try asking: '{suggestion}'")
+            # Suggested questions
+            if not st.session_state[chat_history_key]:  # Only show if no chat history
+                suggestions = [
+                    "What is this video about?",
+                    "Who are the speakers?",
+                    "What happens at 2:30?"
+                ]
+                
+                for suggestion in suggestions:
+                    if st.button(f"❓ {suggestion}", key=f"suggest_{suggestion}", use_container_width=True):
+                        # Set the suggestion to be processed
+                        st.session_state.temp_question = suggestion
+                        st.rerun()
+
+            # Clear chat button
+            st.markdown("---")
+            if st.button("🗑️ Clear Chat History", use_container_width=True):
+                st.session_state[chat_history_key] = []
+                st.rerun()
+
 
 
 def full_app_with_sidebar(index_id: str, index_name: str):
@@ -826,17 +806,17 @@ def full_app_with_sidebar(index_id: str, index_name: str):
     # Page navigation buttons
     
     # Search button
-    if st.sidebar.button("🔍 Search", use_container_width=True, type="primary" if current_page == "search" else "secondary"):
+    if st.sidebar.button("Search", use_container_width=True, type="primary" if current_page == "search" else "secondary"):
         st.query_params["page"] = "search"
         st.rerun()
     
     # Summary button  
-    if st.sidebar.button("📝 Summary", use_container_width=True, type="primary" if current_page == "summary" else "secondary"):
+    if st.sidebar.button("Summarize", use_container_width=True, type="primary" if current_page == "summary" else "secondary"):
         st.query_params["page"] = "summary"
         st.rerun()
     
     # Q&A button
-    if st.sidebar.button("💬 Q&A", use_container_width=True, type="primary" if current_page == "qa" else "secondary"):
+    if st.sidebar.button("Chat", use_container_width=True, type="primary" if current_page == "qa" else "secondary"):
         st.query_params["page"] = "qa"
         st.rerun()
     

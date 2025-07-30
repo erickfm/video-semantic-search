@@ -164,9 +164,8 @@ def list_videos(index_id: str) -> None:
         for i, video in enumerate(videos, 1):
             print(f"  {i:>3}. {video.system_metadata.filename}")
             print(f"       ID: {video.id}")
-            if hasattr(video, 'metadata') and video.metadata:
-                if hasattr(video.metadata, 'duration'):
-                    print(f"       Duration: {video.metadata.duration}s")
+            if hasattr(video, 'system_metadata') and hasattr(video.system_metadata, 'duration'):
+                print(f"       Duration: {video.system_metadata.duration}s")
             print()
             
     except Exception as exc:
