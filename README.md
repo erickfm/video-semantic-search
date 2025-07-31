@@ -4,11 +4,11 @@
 
 ## Features
 
-- **🔍 Semantic Search**: Find video content using natural language, images, or both
+- **🔍 Semantic Search**: Find video content using natural language queries
 - **📝 Video Summarization**: Generate comprehensive summaries with one click
 - **💬 Q&A Chat**: Ask questions about video content and get intelligent answers
 - **📊 Multiple Index Support**: Manage multiple video indexes
-- **🖼️ Multimodal Search**: Combine text and image queries for precise results
+- **🖼️ Image Search**: Search for visually similar content using uploaded images
 
 ## Quick Start
 
@@ -80,7 +80,6 @@ The app will open in your browser at `http://localhost:8501`
 Navigate to the Search page to:
 - **Text Search**: Use natural language queries like "person walking in the park"
 - **Image Search**: Upload an image to find visually similar content
-- **Multimodal Search**: Combine text and images for precise results
 
 **Example Queries:**
 - "red car driving on highway"
